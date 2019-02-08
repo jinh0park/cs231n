@@ -155,6 +155,19 @@ class CaptioningRNN(object):
             grads['W_embed'] = dout
             grads['W_proj'] = features.T.dot(dh0)
             grads['b_proj'] = dh0.sum(axis=0)
+        elif self.cell_type == 'lstm':
+            h, cache['lstm_forward'] = lstm_forward(word_embed, h0, Wx, Wh, b)
+            out, cache['affine'] = temporal_affine_forward(h, W_vocab, b_vocab)
+            loss, dout = temporal_softmax_loss(out, captions_out, mask)
+            
+            dout, grads['W_vocab'], grads['b_vocab'] = temporal_affine_backward(dout, cache['affine'])
+            dout, dh0, grads['Wx'], grads['Wh'], grads['b']= lstm_backward(dout, cache['lstm_forward'])
+            
+            dout = word_embedding_backward(dout, cache['word_embedding'])
+            grads['W_embed'] = dout
+            grads['W_proj'] = features.T.dot(dh0)
+            grads['b_proj'] = dh0.sum(axis=0)
+            
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -221,7 +234,8 @@ class CaptioningRNN(object):
         ###########################################################################
 
         h0 = features.dot(W_proj) + b_proj
-        prev_word = self._start
+        prev_word = np.zeros(N, dtype=np.uint8)
+        prev_word.fill(self._start)
         prev_h = h0
         if self.cell_type == 'rnn':            
             for t in range(max_length):               
@@ -232,6 +246,19 @@ class CaptioningRNN(object):
                 captions[:, t] = next_word
                 
                 prev_h = next_h
+                prev_word = next_word
+                
+        if self.cell_type == 'lstm':
+            prev_c = np.zeros(prev_h.shape)
+            for t in range(max_length):
+                next_h, next_c, _ = lstm_step_forward(W_embed[prev_word], prev_h, prev_c, Wx, Wh, b)
+                word_score = next_h.dot(W_vocab) + b_vocab
+                next_word = word_score.argmax(axis=1)
+                
+                captions[:, t] = next_word
+                
+                prev_h = next_h
+                prev_c = next_c
                 prev_word = next_word
 
         
